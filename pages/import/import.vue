@@ -286,28 +286,48 @@ export default {
       let processedCount = 0
 
       this.scannedFiles.forEach((file, index) => {
-        uni.getFileSystemManager().readFile({
-          filePath: file.path,
-          encoding: 'utf-8',
-          success: (res) => {
-            const records = this.parseWechatCSV(res.data)
+        this.readFileAppSync(file.path, (content) => {
+          if (content) {
+            const records = this.parseWechatCSV(content)
             allRecords = allRecords.concat(records)
-            processedCount++
+          }
+          processedCount++
 
-            if (processedCount === this.scannedFiles.length) {
-              this.batchImportRecords(allRecords)
-            }
-          },
-          fail: () => {
-            processedCount++
-            if (processedCount === this.scannedFiles.length) {
-              this.batchImportRecords(allRecords)
-            }
+          if (processedCount === this.scannedFiles.length) {
+            this.batchImportRecords(allRecords)
           }
         })
       })
 
       this.closeScanResult()
+    },
+    readFileAppSync(filePath, callback) {
+      try {
+        const File = plus.android.importClass('java.io.File')
+        const FileInputStream = plus.android.importClass('java.io.FileInputStream')
+        const InputStreamReader = plus.android.importClass('java.io.InputStreamReader')
+        const BufferedReader = plus.android.importClass('java.io.BufferedReader')
+
+        const file = new File(filePath)
+        const fis = new FileInputStream(file)
+        const isr = new InputStreamReader(fis, 'UTF-8')
+        const br = new BufferedReader(isr)
+
+        let line
+        let content = ''
+        while ((line = br.readLine()) !== null) {
+          content += line + '\n'
+        }
+
+        br.close()
+        isr.close()
+        fis.close()
+
+        callback(content)
+      } catch (e) {
+        console.error('文件读取失败', e)
+        callback(null)
+      }
     },
     batchImportRecords(records) {
       if (records.length === 0) {
@@ -388,21 +408,133 @@ export default {
       })
     },
     chooseFile() {
-      // uni-app 文件选择
-      uni.chooseFile({
+      // #ifdef H5
+      // H5环境使用input file
+      this.chooseFileH5()
+      // #endif
+
+      // #ifdef APP-PLUS
+      // APP环境使用plus.io文件选择
+      this.chooseFileApp()
+      // #endif
+
+      // #ifdef MP
+      // 小程序环境
+      uni.chooseMessageFile({
         count: 1,
+        type: 'file',
         extension: ['.csv'],
         success: (res) => {
-          const tempFilePath = res.tempFilePaths[0]
+          const tempFilePath = res.tempFiles[0].path
           this.currentFile = tempFilePath
           this.readFile(tempFilePath)
-        },
-        fail: (err) => {
-          console.log('文件选择失败', err)
-          // H5环境使用input file
-          this.chooseFileH5()
         }
       })
+      // #endif
+    },
+    chooseFileApp() {
+      // APP环境下使用原生文件选择
+      plus.android.requestPermissions(
+        ['android.permission.READ_EXTERNAL_STORAGE'],
+        (e) => {
+          if (e.deniedAlways.length > 0 || e.deniedPresent.length > 0) {
+            uni.showModal({
+              title: '需要存储权限',
+              content: '请在设置中允许访问存储权限',
+              showCancel: false
+            })
+            return
+          }
+
+          // 使用Intent选择文件
+          const Intent = plus.android.importClass('android.content.Intent')
+          const Uri = plus.android.importClass('android.net.Uri')
+          const main = plus.android.runtimeMainActivity()
+
+          const intent = new Intent(Intent.ACTION_GET_CONTENT)
+          intent.setType('*/*')
+          intent.addCategory(Intent.CATEGORY_OPENABLE)
+
+          main.startActivityForResult(intent, 1001)
+
+          // 监听文件选择结果
+          main.onActivityResult = (requestCode, resultCode, data) => {
+            if (requestCode === 1001 && resultCode === -1) {
+              const uri = data.getData()
+              const filePath = this.getFilePathFromUri(uri)
+              if (filePath) {
+                this.readFileApp(filePath)
+              } else {
+                uni.showToast({
+                  title: '文件路径获取失败',
+                  icon: 'none'
+                })
+              }
+            }
+          }
+        }
+      )
+    },
+    getFilePathFromUri(uri) {
+      try {
+        const main = plus.android.runtimeMainActivity()
+        const ContentResolver = plus.android.importClass('android.content.ContentResolver')
+        const Cursor = plus.android.importClass('android.database.Cursor')
+
+        const resolver = main.getContentResolver()
+        const cursor = resolver.query(uri, null, null, null, null)
+
+        if (cursor && cursor.moveToFirst()) {
+          const columnIndex = cursor.getColumnIndex('_data')
+          if (columnIndex >= 0) {
+            const filePath = cursor.getString(columnIndex)
+            cursor.close()
+            return filePath
+          }
+        }
+
+        // 如果上面方法失败，尝试直接使用URI路径
+        const uriString = uri.toString()
+        if (uriString.startsWith('file://')) {
+          return uriString.replace('file://', '')
+        }
+
+        return null
+      } catch (e) {
+        console.error('获取文件路径失败', e)
+        return null
+      }
+    },
+    readFileApp(filePath) {
+      try {
+        const File = plus.android.importClass('java.io.File')
+        const FileInputStream = plus.android.importClass('java.io.FileInputStream')
+        const InputStreamReader = plus.android.importClass('java.io.InputStreamReader')
+        const BufferedReader = plus.android.importClass('java.io.BufferedReader')
+
+        const file = new File(filePath)
+        const fis = new FileInputStream(file)
+        const isr = new InputStreamReader(fis, 'UTF-8')
+        const br = new BufferedReader(isr)
+
+        let line
+        let content = ''
+        while ((line = br.readLine()) !== null) {
+          content += line + '\n'
+        }
+
+        br.close()
+        isr.close()
+        fis.close()
+
+        this.parseCSV(content)
+      } catch (e) {
+        console.error('文件读取失败', e)
+        uni.showToast({
+          title: '文件读取失败',
+          icon: 'none'
+        })
+      }
     },
     chooseFileH5() {
       // 创建文件选择输入
@@ -426,7 +558,19 @@ export default {
       reader.readAsText(file, 'utf-8')
     },
     readFile(filePath) {
-      uni.getFileSystemManager().readFile({
+      // #ifdef H5
+      // H5环境不会调用这个方法
+      // #endif
+
+      // #ifdef APP-PLUS
+      // APP环境使用原生方法读取
+      this.readFileApp(filePath)
+      // #endif
+
+      // #ifdef MP
+      // 小程序环境
+      const fs = uni.getFileSystemManager()
+      fs.readFile({
         filePath: filePath,
         encoding: 'utf-8',
         success: (res) => {
@@ -439,6 +583,7 @@ export default {
           })
         }
       })
+      // #endif
     },
     parseCSV(content) {
       try {
