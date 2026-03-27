@@ -1,0 +1,70 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: ☕ Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: 🔧 Install dependencies
+      run: npm install
+
+    - name: 🔑 Setup signing key
+      run: |
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $HOME/lazy-money.keystore
+        echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" > android.properties
+        echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android.properties
+        echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android.properties
+        echo "storeFile=$HOME/lazy-money.keystore" >> android.properties
+
+    - name: 📱 Install HBuilderX CLI
+      run: |
+        npm install -g @dcloudio/uvm
+        uvm install 3.8.12.20230802
+        uvm use 3.8.12.20230802
+
+    - name: 🔨 Build APK
+      run: |
+        # 使用 uni-app CLI 构建
+        npx cross-env NODE_ENV=production UNI_PLATFORM=app-plus npx vite build
+
+    - name: 🔐 Sign APK
+      run: |
+        # 如果 HBuilderX CLI 没有自动签名，手动签名
+        if [ -f "unpackage/release/android_debug.apk" ]; then
+          jarsigner -verbose -keystore $HOME/lazy-money.keystore \
+            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
+            -keypass ${{ secrets.KEY_PASSWORD }} \
+            unpackage/release/android_debug.apk ${{ secrets.KEY_ALIAS }}
+
+          # 优化对齐
+          zipalign -v 4 unpackage/release/android_debug.apk unpackage/release/lazy-money-release.apk
+        fi
+
+    - name: 📤 Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: lazy-money-apk
+        path: |
+          unpackage/release/*.apk
+        if-no-files-found: warn

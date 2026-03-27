@@ -1,0 +1,62 @@
+name: DCloud Cloud Build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: 🔧 Install dependencies
+      run: npm install
+
+    - name: 📝 Generate build info
+      run: |
+        echo "Build Time: $(date)" > build-info.txt
+        echo "Commit: ${{ github.sha }}" >> build-info.txt
+        echo "Branch: ${{ github.ref_name }}" >> build-info.txt
+
+    - name: 📤 Upload build info
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-info
+        path: build-info.txt
+
+    - name: 💡 Build Instructions
+      run: |
+        echo "=================================="
+        echo "uni-app 云打包说明"
+        echo "=================================="
+        echo ""
+        echo "由于 uni-app 需要 HBuilderX 或 DCloud 云打包服务，"
+        echo "GitHub Actions 无法直接构建原生 APK。"
+        echo ""
+        echo "推荐方案："
+        echo "1. 使用 HBuilderX 进行云打包（最简单）"
+        echo "2. 使用 DCloud 开放平台 API（需要企业账号）"
+        echo "3. 本地使用 HBuilderX 打包后上传"
+        echo ""
+        echo "快速打包步骤："
+        echo "1. 克隆此仓库到本地"
+        echo "2. 使用 HBuilderX 打开项目"
+        echo "3. 菜单: 发行 → 原生 App-云打包"
+        echo "4. 选择 Android 并配置证书"
+        echo "5. 等待打包完成"
+        echo ""
+        echo "证书配置："
+        echo "- 证书别名: lazy-money"
+        echo "- 密码: android123"
+        echo "- 证书文件: lazy-money.keystore"
+        echo ""
+        echo "=================================="
