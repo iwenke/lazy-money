@@ -11,15 +11,28 @@
       </view>
     </view>
 
+    <!-- 智能扫描 -->
+    <view class="scan-section">
+      <view class="section-title">智能识别</view>
+      <view class="scan-card" @click="scanBillFiles">
+        <view class="scan-icon">🔍</view>
+        <view class="scan-info">
+          <text class="scan-name">扫描账单文件</text>
+          <text class="scan-desc">自动识别下载目录中的账单文件</text>
+        </view>
+        <text class="scan-arrow">›</text>
+      </view>
+    </view>
+
     <!-- 导入选项 -->
     <view class="import-section">
-      <view class="section-title">选择导入方式</view>
+      <view class="section-title">手动选择文件</view>
 
       <view class="import-card" @click="importWechat">
         <view class="import-icon">💬</view>
         <view class="import-info">
           <text class="import-name">微信账单</text>
-          <text class="import-desc">导入微信支付记录</text>
+          <text class="import-desc">手动选择CSV文件导入</text>
         </view>
         <text class="import-arrow">›</text>
       </view>
@@ -28,7 +41,7 @@
         <view class="import-icon">💰</view>
         <view class="import-info">
           <text class="import-name">支付宝账单</text>
-          <text class="import-desc">导入支付宝交易记录</text>
+          <text class="import-desc">手动选择CSV文件导入</text>
         </view>
         <text class="import-arrow">›</text>
       </view>
@@ -47,6 +60,39 @@
             <text class="history-count">{{ item.count }}条记录</text>
             <text class="history-amount">¥{{ item.amount.toFixed(2) }}</text>
           </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 扫描结果弹窗 -->
+    <view v-if="showScanResult" class="preview-modal" @click="closeScanResult">
+      <view class="preview-content" @click.stop>
+        <view class="preview-header">
+          <text class="preview-title">找到账单文件</text>
+          <text class="preview-close" @click="closeScanResult">✕</text>
+        </view>
+
+        <view v-if="scannedFiles.length === 0" class="empty-scan">
+          <text class="empty-icon">📂</text>
+          <text class="empty-text">未找到账单文件</text>
+          <text class="empty-hint">请先在微信下载账单并保存到手机</text>
+        </view>
+
+        <view v-else class="scan-list">
+          <view v-for="(file, index) in scannedFiles" :key="index" class="scan-file-item">
+            <view class="file-info">
+              <text class="file-icon">📄</text>
+              <view class="file-details">
+                <text class="file-name">{{ file.name }}</text>
+                <text class="file-size">{{ formatFileSize(file.size) }}</text>
+              </view>
+            </view>
+            <button class="btn-import-file" @click="importFile(file)">导入</button>
+          </view>
+        </view>
+
+        <view v-if="scannedFiles.length > 0" class="scan-actions">
+          <button class="btn-import-all" @click="importAllFiles">全部导入</button>
         </view>
       </view>
     </view>
@@ -95,7 +141,9 @@ export default {
     return {
       importHistory: [],
       showPreview: false,
+      showScanResult: false,
       previewRecords: [],
+      scannedFiles: [],
       currentFile: null,
       currentType: ''
     }
@@ -113,6 +161,220 @@ export default {
   methods: {
     loadHistory() {
       this.importHistory = uni.getStorageSync('import_history') || []
+    },
+    scanBillFiles() {
+      uni.showLoading({ title: '扫描中...' })
+
+      // #ifdef H5
+      // H5环境下提示用户手动选择
+      uni.hideLoading()
+      uni.showModal({
+        title: '提示',
+        content: '浏览器环境不支持自动扫描，请使用"手动选择文件"功能',
+        showCancel: false
+      })
+      return
+      // #endif
+
+      // #ifdef APP-PLUS
+      // APP环境下扫描下载目录
+      this.scanDownloadDirectory()
+      // #endif
+    },
+    scanDownloadDirectory() {
+      // 请求存储权限
+      plus.android.requestPermissions(
+        ['android.permission.READ_EXTERNAL_STORAGE'],
+        (e) => {
+          if (e.deniedAlways.length > 0) {
+            uni.hideLoading()
+            uni.showModal({
+              title: '需要存储权限',
+              content: '请在设置中允许访问存储权限',
+              showCancel: false
+            })
+            return
+          }
+
+          if (e.deniedPresent.length > 0) {
+            uni.hideLoading()
+            uni.showModal({
+              title: '需要存储权限',
+              content: '需要存储权限才能扫描账单文件',
+              showCancel: false
+            })
+            return
+          }
+
+          // 扫描下载目录
+          this.doScanFiles()
+        },
+        (e) => {
+          uni.hideLoading()
+          uni.showToast({
+            title: '权限请求失败',
+            icon: 'none'
+          })
+        }
+      )
+    },
+    doScanFiles() {
+      const main = plus.android.runtimeMainActivity()
+      const Environment = plus.android.importClass('android.os.Environment')
+      const File = plus.android.importClass('java.io.File')
+
+      // 获取下载目录
+      const downloadPath = Environment.getExternalStoragePublicDirectory(
+        Environment.DIRECTORY_DOWNLOADS
+      ).getAbsolutePath()
+
+      const downloadDir = new File(downloadPath)
+      const files = downloadDir.listFiles()
+
+      const billFiles = []
+
+      if (files) {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i]
+          const fileName = file.getName()
+
+          // 识别微信账单文件
+          if (
+            fileName.indexOf('微信支付账单') >= 0 &&
+            fileName.endsWith('.csv')
+          ) {
+            billFiles.push({
+              name: fileName,
+              path: file.getAbsolutePath(),
+              size: file.length()
+            })
+          }
+        }
+      }
+
+      uni.hideLoading()
+
+      this.scannedFiles = billFiles
+      this.showScanResult = true
+    },
+    closeScanResult() {
+      this.showScanResult = false
+    },
+    importFile(file) {
+      this.currentType = '微信账单'
+      this.currentFile = file.path
+      this.readFile(file.path)
+      this.closeScanResult()
+    },
+    importAllFiles() {
+      if (this.scannedFiles.length === 0) return
+
+      uni.showModal({
+        title: '确认导入',
+        content: `确定要导入全部${this.scannedFiles.length}个账单文件吗？`,
+        success: (res) => {
+          if (res.confirm) {
+            this.doImportAllFiles()
+          }
+        }
+      })
+    },
+    doImportAllFiles() {
+      uni.showLoading({ title: '批量导入中...' })
+
+      let allRecords = []
+      let processedCount = 0
+
+      this.scannedFiles.forEach((file, index) => {
+        uni.getFileSystemManager().readFile({
+          filePath: file.path,
+          encoding: 'utf-8',
+          success: (res) => {
+            const records = this.parseWechatCSV(res.data)
+            allRecords = allRecords.concat(records)
+            processedCount++
+
+            if (processedCount === this.scannedFiles.length) {
+              this.batchImportRecords(allRecords)
+            }
+          },
+          fail: () => {
+            processedCount++
+            if (processedCount === this.scannedFiles.length) {
+              this.batchImportRecords(allRecords)
+            }
+          }
+        })
+      })
+
+      this.closeScanResult()
+    },
+    batchImportRecords(records) {
+      if (records.length === 0) {
+        uni.hideLoading()
+        uni.showToast({
+          title: '未找到有效记录',
+          icon: 'none'
+        })
+        return
+      }
+
+      const bookId = uni.getStorageSync('current_book_id') || 0
+      const allTransactions = uni.getStorageSync('transactions') || []
+
+      records.forEach(record => {
+        allTransactions.push({
+          id: Date.now() + Math.random(),
+          accountBookId: bookId,
+          type: record.type,
+          category: record.category,
+          amount: record.amount,
+          date: record.date,
+          note: record.note || record.merchant
+        })
+      })
+
+      uni.setStorageSync('transactions', allTransactions)
+      this.updateBookBalance(bookId)
+
+      // 保存导入历史
+      const totalAmount = records.reduce((sum, r) => {
+        return sum + (r.type === 0 ? r.amount : -r.amount)
+      }, 0)
+
+      const history = {
+        id: Date.now(),
+        type: '微信账单（批量）',
+        date: new Date().toISOString(),
+        count: records.length,
+        amount: Math.abs(totalAmount)
+      }
+
+      this.importHistory.unshift(history)
+      if (this.importHistory.length > 10) {
+        this.importHistory = this.importHistory.slice(0, 10)
+      }
+      uni.setStorageSync('import_history', this.importHistory)
+
+      uni.hideLoading()
+
+      uni.showToast({
+        title: `成功导入${records.length}条记录`,
+        icon: 'success'
+      })
+
+      this.loadHistory()
+
+      setTimeout(() => {
+        uni.switchTab({
+          url: '/pages/index/index'
+        })
+      }, 1500)
+    },
+    formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + ' B'
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
     },
     importWechat() {
       this.currentType = '微信账单'
@@ -405,6 +667,49 @@ export default {
   line-height: 40rpx;
 }
 
+.scan-section {
+  padding: 0 30rpx;
+  margin-top: 30rpx;
+}
+
+.scan-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 20rpx;
+  padding: 30rpx;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 4rpx 20rpx rgba(102, 126, 234, 0.3);
+}
+
+.scan-icon {
+  font-size: 60rpx;
+  margin-right: 25rpx;
+}
+
+.scan-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.scan-name {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: white;
+  margin-bottom: 8rpx;
+}
+
+.scan-desc {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.scan-arrow {
+  font-size: 48rpx;
+  color: white;
+  font-weight: 300;
+}
+
 .import-section {
   padding: 0 30rpx;
   margin-top: 30rpx;
@@ -511,6 +816,102 @@ export default {
   font-size: 30rpx;
   font-weight: bold;
   color: #667eea;
+}
+
+.empty-scan {
+  padding: 80rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.empty-icon {
+  font-size: 100rpx;
+  margin-bottom: 20rpx;
+}
+
+.empty-text {
+  font-size: 30rpx;
+  color: #666;
+  margin-bottom: 10rpx;
+}
+
+.empty-hint {
+  font-size: 24rpx;
+  color: #999;
+  text-align: center;
+}
+
+.scan-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 20rpx 30rpx;
+}
+
+.scan-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 25rpx 0;
+  border-bottom: 1rpx solid #f5f5f5;
+}
+
+.scan-file-item:last-child {
+  border-bottom: none;
+}
+
+.file-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.file-icon {
+  font-size: 48rpx;
+  margin-right: 20rpx;
+}
+
+.file-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-name {
+  font-size: 28rpx;
+  color: #333;
+  margin-bottom: 8rpx;
+}
+
+.file-size {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.btn-import-file {
+  padding: 12rpx 30rpx;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 30rpx;
+  font-size: 26rpx;
+  border: none;
+}
+
+.scan-actions {
+  padding: 30rpx;
+  border-top: 1rpx solid #f5f5f5;
+}
+
+.btn-import-all {
+  width: 100%;
+  height: 80rpx;
+  line-height: 80rpx;
+  text-align: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 40rpx;
+  font-size: 30rpx;
+  border: none;
 }
 
 .preview-modal {
