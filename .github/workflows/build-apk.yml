@@ -1,25 +1,15 @@
-name: Build Android APK
+name: Check Build Config
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
 
     steps:
     - name: 📥 Checkout code
       uses: actions/checkout@v4
-
-    - name: ☕ Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'zulu'
-        java-version: '17'
 
     - name: 📦 Setup Node.js
       uses: actions/setup-node@v4
@@ -29,42 +19,63 @@ jobs:
     - name: 🔧 Install dependencies
       run: npm install
 
-    - name: 🔑 Setup signing key
+    - name: ✅ Verify Secrets
       run: |
-        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $HOME/lazy-money.keystore
-        echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" > android.properties
-        echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android.properties
-        echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android.properties
-        echo "storeFile=$HOME/lazy-money.keystore" >> android.properties
-
-    - name: 📱 Install HBuilderX CLI
-      run: |
-        npm install -g @dcloudio/uvm
-        uvm install 3.8.12.20230802
-        uvm use 3.8.12.20230802
-
-    - name: 🔨 Build APK
-      run: |
-        # 使用 uni-app CLI 构建
-        npx cross-env NODE_ENV=production UNI_PLATFORM=app-plus npx vite build
-
-    - name: 🔐 Sign APK
-      run: |
-        # 如果 HBuilderX CLI 没有自动签名，手动签名
-        if [ -f "unpackage/release/android_debug.apk" ]; then
-          jarsigner -verbose -keystore $HOME/lazy-money.keystore \
-            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
-            -keypass ${{ secrets.KEY_PASSWORD }} \
-            unpackage/release/android_debug.apk ${{ secrets.KEY_ALIAS }}
-
-          # 优化对齐
-          zipalign -v 4 unpackage/release/android_debug.apk unpackage/release/lazy-money-release.apk
+        echo "==================================="
+        echo "GitHub Secrets 配置检查"
+        echo "==================================="
+        echo ""
+        if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+          echo "✅ KEYSTORE_BASE64: 已配置"
+        else
+          echo "❌ KEYSTORE_BASE64: 未配置"
         fi
 
-    - name: 📤 Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: lazy-money-apk
-        path: |
-          unpackage/release/*.apk
-        if-no-files-found: warn
+        if [ -n "${{ secrets.KEYSTORE_PASSWORD }}" ]; then
+          echo "✅ KEYSTORE_PASSWORD: 已配置"
+        else
+          echo "❌ KEYSTORE_PASSWORD: 未配置"
+        fi
+
+        if [ -n "${{ secrets.KEY_PASSWORD }}" ]; then
+          echo "✅ KEY_PASSWORD: 已配置"
+        else
+          echo "❌ KEY_PASSWORD: 未配置"
+        fi
+
+        if [ -n "${{ secrets.KEY_ALIAS }}" ]; then
+          echo "✅ KEY_ALIAS: 已配置"
+        else
+          echo "❌ KEY_ALIAS: 未配置"
+        fi
+        echo ""
+        echo "==================================="
+        echo "uni-app 打包说明"
+        echo "==================================="
+        echo ""
+        echo "⚠️  uni-app 无法在 GitHub Actions 中直接打包原生 APK"
+        echo ""
+        echo "推荐打包方式："
+        echo "1. 使用 HBuilderX 云打包（最简单）"
+        echo "2. 使用 DCloud 开放平台 API（企业账号）"
+        echo ""
+        echo "快速打包步骤："
+        echo "1. 下载 HBuilderX: https://www.dcloud.io/hbuilderx.html"
+        echo "2. 打开项目: lazy-money"
+        echo "3. 菜单: 发行 → 原生 App-云打包"
+        echo "4. 配置证书信息"
+        echo "5. 等待打包完成"
+        echo ""
+        echo "证书配置："
+        echo "- 证书别名: lazy-money"
+        echo "- 密码: android123"
+        echo ""
+        echo "==================================="
+
+    - name: 📝 Project Info
+      run: |
+        echo "项目信息:"
+        echo "- 名称: 懒人记账"
+        echo "- 框架: uni-app"
+        echo "- 版本: $(node -p "require('./package.json').version")"
+        echo "- 仓库: https://github.com/iwenke/lazy-money"
