@@ -146,6 +146,10 @@
 </template>
 
 <script>
+// #ifdef H5
+import * as XLSX from 'xlsx'
+// #endif
+
 export default {
   data() {
     return {
@@ -264,16 +268,16 @@ export default {
           const file = files[i]
           const fileName = file.getName()
 
-          // 识别微信账单文件
-          if (
-            fileName.indexOf('微信支付账单') >= 0 &&
-            fileName.endsWith('.csv')
-          ) {
-            billFiles.push({
-              name: fileName,
-              path: file.getAbsolutePath(),
-              size: file.length()
-            })
+          // 识别微信账单文件（支持CSV和Excel）
+          if (fileName.indexOf('微信支付账单') >= 0) {
+            if (fileName.endsWith('.csv') || fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+              billFiles.push({
+                name: fileName,
+                path: file.getAbsolutePath(),
+                size: file.length(),
+                isExcel: fileName.endsWith('.xlsx') || fileName.endsWith('.xls')
+              })
+            }
           }
         }
       }
@@ -289,8 +293,46 @@ export default {
     importFile(file) {
       this.currentType = '微信账单'
       this.currentFile = file.path
-      this.readFile(file.path)
+
+      if (file.isExcel) {
+        // Excel文件，使用原生方法解析
+        this.readExcelApp(file.path)
+      } else {
+        // CSV文件
+        this.readFile(file.path)
+      }
+
       this.closeScanResult()
+    },
+    readExcelApp(filePath) {
+      uni.showLoading({ title: '解析Excel...' })
+
+      try {
+        // 提示用户Excel解析可能较慢
+        uni.showModal({
+          title: '提示',
+          content: 'APP环境下Excel解析功能有限，建议将Excel转换为CSV格式后导入。\n\n是否继续尝试？',
+          success: (res) => {
+            if (res.confirm) {
+              // 简化处理：提示用户转换
+              uni.hideLoading()
+              uni.showToast({
+                title: '请将Excel转换为CSV格式',
+                icon: 'none',
+                duration: 3000
+              })
+            } else {
+              uni.hideLoading()
+            }
+          }
+        })
+      } catch (e) {
+        uni.hideLoading()
+        uni.showToast({
+          title: 'Excel解析失败',
+          icon: 'none'
+        })
+      }
     },
     importAllFiles() {
       if (this.scannedFiles.length === 0) return
@@ -529,34 +571,30 @@ export default {
         const ContentResolver = plus.android.importClass('android.content.ContentResolver')
         const BufferedReader = plus.android.importClass('java.io.BufferedReader')
         const InputStreamReader = plus.android.importClass('java.io.InputStreamReader')
-        const ByteArrayOutputStream = plus.android.importClass('java.io.ByteArrayOutputStream')
 
         const resolver = main.getContentResolver()
         const inputStream = resolver.openInputStream(uri)
 
         // 获取文件名
-        const uriString = uri.toString()
         const fileName = this.getFileNameFromUri(uri)
         const isExcel = fileName && (fileName.endsWith('.xlsx') || fileName.endsWith('.xls'))
 
         if (isExcel) {
-          // Excel文件，读取为字节数组
-          const byteStream = new ByteArrayOutputStream()
-          const buffer = plus.android.newObject('byte[]', 1024)
-          let length
-
-          while ((length = inputStream.read(buffer)) > 0) {
-            byteStream.write(buffer, 0, length)
-          }
-
-          const bytes = byteStream.toByteArray()
-          byteStream.close()
+          // Excel文件，APP环境下建议使用扫描功能
           inputStream.close()
-
           uni.hideLoading()
 
-          // 转换为Uint8Array并解析
-          this.parseExcelFromBytes(bytes)
+          uni.showModal({
+            title: '提示',
+            content: 'Excel文件建议使用"扫描账单文件"功能导入，更快更稳定！\n\n或者先将Excel转换为CSV格式。',
+            confirmText: '去扫描',
+            cancelText: '知道了',
+            success: (res) => {
+              if (res.confirm) {
+                this.scanBillFiles()
+              }
+            }
+          })
         } else {
           // CSV文件，读取为文本
           const isr = new InputStreamReader(inputStream, 'UTF-8')
@@ -617,6 +655,16 @@ export default {
       }
     },
     parseExcelFromBytes(bytes) {
+      // #ifdef APP-PLUS
+      // APP环境暂不支持Excel解析
+      uni.showModal({
+        title: '提示',
+        content: 'APP环境下请使用"扫描账单文件"功能，或将Excel文件保存到下载目录',
+        showCancel: false
+      })
+      // #endif
+
+      // #ifdef H5
       try {
         // 将Java字节数组转换为JS Uint8Array
         const length = bytes.length
@@ -627,23 +675,15 @@ export default {
         }
 
         // 使用xlsx解析
-        import('xlsx').then(XLSX => {
-          const workbook = XLSX.read(uint8Array, { type: 'array' })
-          const sheet = workbook.Sheets[workbook.SheetNames[0]]
-          const jsonData = XLSX.utils.sheet_to_json(sheet, {
-            header: 1,
-            raw: false,
-            dateNF: 'yyyy-mm-dd hh:mm:ss'
-          })
-
-          this.parseWechatExcel(jsonData)
-        }).catch(err => {
-          console.error('xlsx库加载失败', err)
-          uni.showToast({
-            title: 'Excel解析失败',
-            icon: 'none'
-          })
+        const workbook = XLSX.read(uint8Array, { type: 'array' })
+        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        const jsonData = XLSX.utils.sheet_to_json(sheet, {
+          header: 1,
+          raw: false,
+          dateNF: 'yyyy-mm-dd hh:mm:ss'
         })
+
+        this.parseWechatExcel(jsonData)
       } catch (e) {
         console.error('Excel解析失败', e)
         uni.showToast({
@@ -651,6 +691,7 @@ export default {
           icon: 'none'
         })
       }
+      // #endif
     },
     getFilePathFromUri(uri) {
       try {
@@ -783,29 +824,20 @@ export default {
       const reader = new FileReader()
       reader.onload = (e) => {
         try {
-          // 动态导入xlsx库
-          import('xlsx').then(XLSX => {
-            const data = new Uint8Array(e.target.result)
-            const workbook = XLSX.read(data, { type: 'array' })
-            const sheet = workbook.Sheets[workbook.SheetNames[0]]
-            const jsonData = XLSX.utils.sheet_to_json(sheet, {
-              header: 1,
-              raw: false,
-              dateNF: 'yyyy-mm-dd hh:mm:ss'
-            })
-
-            this.parseWechatExcel(jsonData)
-          }).catch(err => {
-            console.error('xlsx库加载失败', err)
-            uni.showToast({
-              title: 'Excel解析失败',
-              icon: 'none'
-            })
+          const data = new Uint8Array(e.target.result)
+          const workbook = XLSX.read(data, { type: 'array' })
+          const sheet = workbook.Sheets[workbook.SheetNames[0]]
+          const jsonData = XLSX.utils.sheet_to_json(sheet, {
+            header: 1,
+            raw: false,
+            dateNF: 'yyyy-mm-dd hh:mm:ss'
           })
+
+          this.parseWechatExcel(jsonData)
         } catch (err) {
           console.error('Excel读取失败', err)
           uni.showToast({
-            title: 'Excel读取失败',
+            title: 'Excel解析失败',
             icon: 'none'
           })
         }
