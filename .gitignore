@@ -1,0 +1,23 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# uni-app
+unpackage/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local
+*.local
