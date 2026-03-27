@@ -474,55 +474,245 @@ export default {
 
           // 使用Intent选择文件
           const Intent = plus.android.importClass('android.content.Intent')
-          const Uri = plus.android.importClass('android.net.Uri')
           const main = plus.android.runtimeMainActivity()
 
           const intent = new Intent(Intent.ACTION_GET_CONTENT)
           intent.setType('*/*')
           intent.addCategory(Intent.CATEGORY_OPENABLE)
 
+          // 添加额外的MIME类型支持
+          const mimeTypes = [
+            'text/csv',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          ]
+
+          try {
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
+          } catch (e) {
+            console.log('设置MIME类型失败', e)
+          }
+
           main.startActivityForResult(intent, 1001)
 
           // 监听文件选择结果
           main.onActivityResult = (requestCode, resultCode, data) => {
-            if (requestCode === 1001 && resultCode === -1) {
-              const uri = data.getData()
-              const filePath = this.getFilePathFromUri(uri)
-              if (filePath) {
-                this.readFileApp(filePath)
+            if (requestCode === 1001) {
+              if (resultCode === -1 && data) {
+                uni.showLoading({ title: '读取文件中...' })
+
+                try {
+                  const uri = data.getData()
+
+                  // 尝试直接读取URI
+                  this.readFileFromUri(uri)
+                } catch (e) {
+                  uni.hideLoading()
+                  console.error('文件处理失败', e)
+                  uni.showModal({
+                    title: '文件读取失败',
+                    content: '请尝试使用"扫描账单文件"功能，或将文件保存到下载目录',
+                    showCancel: false
+                  })
+                }
               } else {
-                uni.showToast({
-                  title: '文件路径获取失败',
-                  icon: 'none'
-                })
+                console.log('用户取消选择')
               }
             }
           }
         }
       )
     },
-    getFilePathFromUri(uri) {
+    readFileFromUri(uri) {
       try {
         const main = plus.android.runtimeMainActivity()
         const ContentResolver = plus.android.importClass('android.content.ContentResolver')
-        const Cursor = plus.android.importClass('android.database.Cursor')
+        const BufferedReader = plus.android.importClass('java.io.BufferedReader')
+        const InputStreamReader = plus.android.importClass('java.io.InputStreamReader')
+        const ByteArrayOutputStream = plus.android.importClass('java.io.ByteArrayOutputStream')
 
+        const resolver = main.getContentResolver()
+        const inputStream = resolver.openInputStream(uri)
+
+        // 获取文件名
+        const uriString = uri.toString()
+        const fileName = this.getFileNameFromUri(uri)
+        const isExcel = fileName && (fileName.endsWith('.xlsx') || fileName.endsWith('.xls'))
+
+        if (isExcel) {
+          // Excel文件，读取为字节数组
+          const byteStream = new ByteArrayOutputStream()
+          const buffer = plus.android.newObject('byte[]', 1024)
+          let length
+
+          while ((length = inputStream.read(buffer)) > 0) {
+            byteStream.write(buffer, 0, length)
+          }
+
+          const bytes = byteStream.toByteArray()
+          byteStream.close()
+          inputStream.close()
+
+          uni.hideLoading()
+
+          // 转换为Uint8Array并解析
+          this.parseExcelFromBytes(bytes)
+        } else {
+          // CSV文件，读取为文本
+          const isr = new InputStreamReader(inputStream, 'UTF-8')
+          const br = new BufferedReader(isr)
+
+          let line
+          let content = ''
+          while ((line = br.readLine()) !== null) {
+            content += line + '\n'
+          }
+
+          br.close()
+          isr.close()
+          inputStream.close()
+
+          uni.hideLoading()
+
+          this.parseCSV(content)
+        }
+      } catch (e) {
+        uni.hideLoading()
+        console.error('读取文件失败', e)
+        uni.showModal({
+          title: '文件读取失败',
+          content: '建议使用"扫描账单文件"功能，或将文件保存到下载目录后重试',
+          showCancel: false
+        })
+      }
+    },
+    getFileNameFromUri(uri) {
+      try {
+        const main = plus.android.runtimeMainActivity()
+        const ContentResolver = plus.android.importClass('android.content.ContentResolver')
         const resolver = main.getContentResolver()
         const cursor = resolver.query(uri, null, null, null, null)
 
         if (cursor && cursor.moveToFirst()) {
-          const columnIndex = cursor.getColumnIndex('_data')
-          if (columnIndex >= 0) {
-            const filePath = cursor.getString(columnIndex)
+          const nameIndex = cursor.getColumnIndex('_display_name')
+          if (nameIndex >= 0) {
+            const name = cursor.getString(nameIndex)
             cursor.close()
-            return filePath
+            return name
           }
+          cursor.close()
         }
 
-        // 如果上面方法失败，尝试直接使用URI路径
+        // 从URI路径提取文件名
         const uriString = uri.toString()
+        const lastSlash = uriString.lastIndexOf('/')
+        if (lastSlash >= 0) {
+          return uriString.substring(lastSlash + 1)
+        }
+
+        return null
+      } catch (e) {
+        console.error('获取文件名失败', e)
+        return null
+      }
+    },
+    parseExcelFromBytes(bytes) {
+      try {
+        // 将Java字节数组转换为JS Uint8Array
+        const length = bytes.length
+        const uint8Array = new Uint8Array(length)
+
+        for (let i = 0; i < length; i++) {
+          uint8Array[i] = bytes[i] & 0xFF
+        }
+
+        // 使用xlsx解析
+        import('xlsx').then(XLSX => {
+          const workbook = XLSX.read(uint8Array, { type: 'array' })
+          const sheet = workbook.Sheets[workbook.SheetNames[0]]
+          const jsonData = XLSX.utils.sheet_to_json(sheet, {
+            header: 1,
+            raw: false,
+            dateNF: 'yyyy-mm-dd hh:mm:ss'
+          })
+
+          this.parseWechatExcel(jsonData)
+        }).catch(err => {
+          console.error('xlsx库加载失败', err)
+          uni.showToast({
+            title: 'Excel解析失败',
+            icon: 'none'
+          })
+        })
+      } catch (e) {
+        console.error('Excel解析失败', e)
+        uni.showToast({
+          title: 'Excel解析失败',
+          icon: 'none'
+        })
+      }
+    },
+    getFilePathFromUri(uri) {
+      try {
+        const main = plus.android.runtimeMainActivity()
+        const uriString = uri.toString()
+
+        // 方法1: 直接从file:// URI获取
         if (uriString.startsWith('file://')) {
           return uriString.replace('file://', '')
+        }
+
+        // 方法2: 使用ContentResolver查询
+        try {
+          const ContentResolver = plus.android.importClass('android.content.ContentResolver')
+          const resolver = main.getContentResolver()
+          const cursor = resolver.query(uri, null, null, null, null)
+
+          if (cursor && cursor.moveToFirst()) {
+            const columnIndex = cursor.getColumnIndex('_data')
+            if (columnIndex >= 0) {
+              const filePath = cursor.getString(columnIndex)
+              cursor.close()
+              if (filePath) return filePath
+            }
+            cursor.close()
+          }
+        } catch (e) {
+          console.log('ContentResolver方法失败', e)
+        }
+
+        // 方法3: 复制文件到临时目录
+        try {
+          const File = plus.android.importClass('java.io.File')
+          const FileInputStream = plus.android.importClass('java.io.FileInputStream')
+          const FileOutputStream = plus.android.importClass('java.io.FileOutputStream')
+          const ContentResolver = plus.android.importClass('android.content.ContentResolver')
+
+          const resolver = main.getContentResolver()
+          const inputStream = resolver.openInputStream(uri)
+
+          // 创建临时文件
+          const tempDir = plus.io.convertLocalFileSystemURL('_doc/')
+          const tempFileName = 'temp_import_' + Date.now() + '.xlsx'
+          const tempFilePath = tempDir + tempFileName
+
+          const File2 = plus.android.importClass('java.io.File')
+          const tempFile = new File2(tempFilePath)
+          const outputStream = new FileOutputStream(tempFile)
+
+          // 复制文件
+          const buffer = plus.android.newObject('byte[]', 1024)
+          let length
+          while ((length = inputStream.read(buffer)) > 0) {
+            outputStream.write(buffer, 0, length)
+          }
+
+          outputStream.close()
+          inputStream.close()
+
+          return tempFilePath
+        } catch (e) {
+          console.log('复制文件方法失败', e)
         }
 
         return null
