@@ -32,7 +32,7 @@
         <view class="import-icon">💬</view>
         <view class="import-info">
           <text class="import-name">微信账单</text>
-          <text class="import-desc">手动选择CSV文件导入</text>
+          <text class="import-desc">支持Excel(.xlsx)和CSV格式</text>
         </view>
         <text class="import-arrow">›</text>
       </view>
@@ -106,8 +106,18 @@
         </view>
 
         <view class="preview-summary">
-          <text class="summary-text">共 {{ previewRecords.length }} 条记录</text>
-          <text class="summary-amount">总金额 ¥{{ totalAmount.toFixed(2) }}</text>
+          <view class="summary-row">
+            <text class="summary-label">共</text>
+            <text class="summary-value">{{ previewRecords.length }}笔记录</text>
+          </view>
+          <view class="summary-row">
+            <text class="summary-label">收入</text>
+            <text class="summary-value income">{{ incomeCount }}笔 ¥{{ totalIncome.toFixed(2) }}</text>
+          </view>
+          <view class="summary-row">
+            <text class="summary-label">支出</text>
+            <text class="summary-value expense">{{ expenseCount }}笔 ¥{{ totalExpense.toFixed(2) }}</text>
+          </view>
         </view>
 
         <view class="preview-list">
@@ -153,6 +163,22 @@ export default {
       return this.previewRecords.reduce((sum, record) => {
         return sum + (record.type === 0 ? record.amount : -record.amount)
       }, 0)
+    },
+    totalIncome() {
+      return this.previewRecords
+        .filter(r => r.type === 1)
+        .reduce((sum, r) => sum + r.amount, 0)
+    },
+    totalExpense() {
+      return this.previewRecords
+        .filter(r => r.type === 0)
+        .reduce((sum, r) => sum + r.amount, 0)
+    },
+    incomeCount() {
+      return this.previewRecords.filter(r => r.type === 1).length
+    },
+    expenseCount() {
+      return this.previewRecords.filter(r => r.type === 0).length
     }
   },
   onShow() {
@@ -540,11 +566,16 @@ export default {
       // 创建文件选择输入
       const input = document.createElement('input')
       input.type = 'file'
-      input.accept = '.csv'
+      input.accept = '.csv,.xlsx,.xls'
       input.onchange = (e) => {
         const file = e.target.files[0]
         if (file) {
-          this.readFileH5(file)
+          const fileName = file.name.toLowerCase()
+          if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+            this.readExcelH5(file)
+          } else {
+            this.readFileH5(file)
+          }
         }
       }
       input.click()
@@ -556,6 +587,140 @@ export default {
         this.parseCSV(content)
       }
       reader.readAsText(file, 'utf-8')
+    },
+    readExcelH5(file) {
+      // #ifdef H5
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        try {
+          // 动态导入xlsx库
+          import('xlsx').then(XLSX => {
+            const data = new Uint8Array(e.target.result)
+            const workbook = XLSX.read(data, { type: 'array' })
+            const sheet = workbook.Sheets[workbook.SheetNames[0]]
+            const jsonData = XLSX.utils.sheet_to_json(sheet, {
+              header: 1,
+              raw: false,
+              dateNF: 'yyyy-mm-dd hh:mm:ss'
+            })
+
+            this.parseWechatExcel(jsonData)
+          }).catch(err => {
+            console.error('xlsx库加载失败', err)
+            uni.showToast({
+              title: 'Excel解析失败',
+              icon: 'none'
+            })
+          })
+        } catch (err) {
+          console.error('Excel读取失败', err)
+          uni.showToast({
+            title: 'Excel读取失败',
+            icon: 'none'
+          })
+        }
+      }
+      reader.readAsArrayBuffer(file)
+      // #endif
+    },
+    parseWechatExcel(jsonData) {
+      try {
+        // 微信Excel账单从第18行开始是数据（第17行是表头）
+        if (jsonData.length < 19) {
+          uni.showToast({
+            title: '账单文件格式错误',
+            icon: 'none'
+          })
+          return
+        }
+
+        const records = []
+
+        // 从第19行开始解析数据（索引18）
+        for (let i = 18; i < jsonData.length; i++) {
+          const row = jsonData[i]
+          if (!row || row.length < 6) continue
+
+          const dateTime = row[0] // 交易时间
+          const transactionType = row[1] // 交易类型
+          const merchant = row[2] // 交易对方
+          const product = row[3] // 商品
+          const inOut = row[4] // 收/支
+          const amount = parseFloat(row[5]) // 金额
+          const paymentMethod = row[6] || '' // 支付方式
+          const status = row[7] || '' // 当前状态
+          const transactionId = row[8] || '' // 交易单号
+          const merchantId = row[9] || '' // 商户单号
+          const note = row[10] || '' // 备注
+
+          if (isNaN(amount) || amount <= 0) continue
+
+          // 判断收支类型
+          const type = inOut === '支出' ? 0 : 1
+
+          // 智能匹配分类
+          const category = this.matchCategoryAdvanced(
+            transactionType,
+            merchant,
+            product,
+            type
+          )
+
+          records.push({
+            date: this.formatDateTime(dateTime),
+            type: type,
+            category: category,
+            merchant: merchant || product,
+            amount: amount,
+            note: product || note,
+            transactionType: transactionType,
+            paymentMethod: paymentMethod,
+            status: status,
+            transactionId: transactionId,
+            merchantId: merchantId
+          })
+        }
+
+        if (records.length === 0) {
+          uni.showToast({
+            title: '未找到有效记录',
+            icon: 'none'
+          })
+          return
+        }
+
+        this.previewRecords = records
+        this.showPreview = true
+      } catch (err) {
+        console.error('Excel解析失败', err)
+        uni.showToast({
+          title: 'Excel解析失败',
+          icon: 'none'
+        })
+      }
+    },
+    formatDateTime(dateTime) {
+      if (!dateTime) return new Date().toISOString()
+
+      // 如果已经是标准格式
+      if (typeof dateTime === 'string' && dateTime.includes('-')) {
+        return dateTime
+      }
+
+      // 如果是Date对象
+      if (dateTime instanceof Date) {
+        return dateTime.toISOString().replace('T', ' ').substring(0, 19)
+      }
+
+      // 尝试解析
+      try {
+        const date = new Date(dateTime)
+        if (!isNaN(date.getTime())) {
+          return date.toISOString().replace('T', ' ').substring(0, 19)
+        }
+      } catch (e) {}
+
+      return new Date().toISOString()
     },
     readFile(filePath) {
       // #ifdef H5
@@ -679,6 +844,42 @@ export default {
         if (text.match(/美团|饿了么|外卖|餐饮|食堂|麦当劳|肯德基|星巴克|咖啡|奶茶/)) return '餐饮'
         if (text.match(/淘宝|京东|拼多多|商场|超市|便利店|购物|盒马/)) return '购物'
         if (text.match(/滴滴|打车|出租|地铁|公交|加油|停车|中国石化|中国石油/)) return '交通'
+        if (text.match(/电影|KTV|游戏|娱乐|健身|运动/)) return '娱乐'
+        if (text.match(/医院|药店|医疗|体检/)) return '医疗'
+        if (text.match(/房租|物业|水电|燃气/)) return '住房'
+        if (text.match(/培训|课程|书店|教育/)) return '教育'
+        return '其他'
+      } else {
+        // 收入分类
+        if (text.match(/工资|薪资|报酬/)) return '工资'
+        if (text.match(/奖金|提成|年终奖/)) return '奖金'
+        if (text.match(/兼职|外快/)) return '兼职'
+        if (text.match(/理财|利息|分红|投资/)) return '理财'
+        return '其他'
+      }
+    },
+    matchCategoryAdvanced(transactionType, merchant, product, type) {
+      // 优先根据交易类型判断
+      if (transactionType === '群收款') {
+        return 'AA收款'
+      }
+
+      if (transactionType && transactionType.includes('红包')) {
+        return '红包'
+      }
+
+      if (transactionType === '转账') {
+        return '转账'
+      }
+
+      // 商户消费，根据商家和商品智能匹配
+      const text = ((merchant || '') + (product || '')).toLowerCase()
+
+      if (type === 0) {
+        // 支出分类
+        if (text.match(/米线|包子|早餐|午餐|晚餐|美团|饿了么|外卖|餐饮|食堂|麦当劳|肯德基|星巴克|咖啡|奶茶/)) return '餐饮'
+        if (text.match(/淘宝|京东|拼多多|商场|超市|便利店|购物|盒马/)) return '购物'
+        if (text.match(/充电|电车|滴滴|打车|出租|地铁|公交|加油|停车|中国石化|中国石油/)) return '交通'
         if (text.match(/电影|KTV|游戏|娱乐|健身|运动/)) return '娱乐'
         if (text.match(/医院|药店|医疗|体检/)) return '医疗'
         if (text.match(/房租|物业|水电|燃气/)) return '住房'
@@ -1105,18 +1306,33 @@ export default {
   padding: 30rpx;
   background: #f9f9f9;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 15rpx;
 }
 
-.summary-text {
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.summary-label {
   font-size: 28rpx;
   color: #666;
 }
 
-.summary-amount {
+.summary-value {
   font-size: 28rpx;
   font-weight: bold;
-  color: #667eea;
+  color: #333;
+}
+
+.summary-value.income {
+  color: #2ed573;
+}
+
+.summary-value.expense {
+  color: #ff4757;
 }
 
 .preview-list {

@@ -79,8 +79,8 @@ export default {
       category: '',
       note: '',
       date: new Date().toISOString().split('T')[0],
-      expenseCategories: ['餐饮', '交通', '购物', '娱乐', '医疗', '教育', '住房', '其他'],
-      incomeCategories: ['工资', '奖金', '兼职', '投资', '红包', '其他']
+      expenseCategories: ['餐饮', '交通', '购物', '娱乐', '医疗', '教育', '住房', 'AA收款', '红包', '转账', '其他'],
+      incomeCategories: ['工资', '奖金', '兼职', '投资', '红包', '转账', '其他']
     }
   },
   computed: {
