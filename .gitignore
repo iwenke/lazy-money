@@ -21,3 +21,17 @@ Thumbs.db
 
 # Local
 *.local
+
+# Security - Certificates and Keys
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+*.base64
+SECRETS.md
+
+# Build outputs
+*.apk
+*.ipa
+*.aab
