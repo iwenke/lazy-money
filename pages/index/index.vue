@@ -28,13 +28,19 @@
 
     <!-- 交易记录 -->
     <view class="transactions">
-      <view class="section-title">最近记录</view>
+      <view class="section-header">
+        <text class="section-title">最近记录</text>
+        <text class="view-all" @click="goToBooks">查看全部 ›</text>
+      </view>
       <view v-if="transactions.length === 0" class="empty">
         <text class="empty-icon">📝</text>
         <text class="empty-text">还没有记录，点击下方按钮开始记账</text>
       </view>
       <view v-else class="transaction-list">
         <view v-for="item in transactions" :key="item.id" class="transaction-item">
+          <view class="transaction-icon-wrapper">
+            <text class="transaction-icon">{{ getCategoryIcon(item.category, item.type) }}</text>
+          </view>
           <view class="transaction-left">
             <text class="transaction-category">{{ item.category }}</text>
             <text class="transaction-note" v-if="item.note">{{ item.note }}</text>
@@ -137,6 +143,30 @@ export default {
       uni.navigateTo({
         url: '/pages/books/books'
       })
+    },
+    getCategoryIcon(category, type) {
+      const expenseIcons = {
+        '餐饮': '🍽️',
+        '购物': '🛍️',
+        '交通': '🚗',
+        '娱乐': '🎮',
+        '医疗': '💊',
+        '住房': '🏠',
+        '教育': '📚',
+        '其他': '📦'
+      }
+      const incomeIcons = {
+        '工资': '💰',
+        '奖金': '🎁',
+        '兼职': '💼',
+        '理财': '📈',
+        '其他': '💵'
+      }
+      if (type === 0) {
+        return expenseIcons[category] || '💳'
+      } else {
+        return incomeIcons[category] || '💰'
+      }
     }
   }
 }
@@ -236,11 +266,22 @@ export default {
   padding: 0 30rpx;
 }
 
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+
 .section-title {
   font-size: 32rpx;
   font-weight: bold;
-  margin-bottom: 20rpx;
   color: #333;
+}
+
+.view-all {
+  font-size: 26rpx;
+  color: #999;
 }
 
 .empty {
@@ -271,12 +312,27 @@ export default {
 .transaction-item {
   display: flex;
   align-items: center;
-  padding: 30rpx;
+  padding: 25rpx 30rpx;
   border-bottom: 1rpx solid #f5f5f5;
 }
 
 .transaction-item:last-child {
   border-bottom: none;
+}
+
+.transaction-icon-wrapper {
+  width: 80rpx;
+  height: 80rpx;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 20rpx;
+}
+
+.transaction-icon {
+  font-size: 40rpx;
 }
 
 .transaction-left {

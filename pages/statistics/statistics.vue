@@ -29,19 +29,27 @@
 
     <!-- 支出分类统计 -->
     <view class="category-stats">
-      <view class="section-title">支出分类</view>
+      <view class="section-title">
+        <text>支出分类</text>
+        <text class="section-subtitle">本月消费分析</text>
+      </view>
       <view v-if="expenseByCategory.length === 0" class="empty">
         <text>本月暂无支出记录</text>
       </view>
       <view v-else class="category-list">
         <view v-for="item in expenseByCategory" :key="item.category" class="category-item">
           <view class="category-info">
-            <text class="category-name">{{ item.category }}</text>
-            <text class="category-count">{{ item.count }}笔</text>
-          </view>
-          <view class="category-right">
-            <text class="category-amount">¥{{ item.amount.toFixed(2) }}</text>
-            <text class="category-percent">{{ item.percent }}%</text>
+            <view class="category-header">
+              <text class="category-name">{{ item.category }}</text>
+              <text class="category-amount">¥{{ item.amount.toFixed(2) }}</text>
+            </view>
+            <view class="category-bar-container">
+              <view class="category-bar" :style="{ width: item.percent + '%' }"></view>
+            </view>
+            <view class="category-footer">
+              <text class="category-count">{{ item.count }}笔</text>
+              <text class="category-percent">{{ item.percent }}%</text>
+            </view>
           </view>
         </view>
       </view>
@@ -49,19 +57,27 @@
 
     <!-- 收入分类统计 -->
     <view class="category-stats">
-      <view class="section-title">收入分类</view>
+      <view class="section-title">
+        <text>收入分类</text>
+        <text class="section-subtitle">本月收入分析</text>
+      </view>
       <view v-if="incomeByCategory.length === 0" class="empty">
         <text>本月暂无收入记录</text>
       </view>
       <view v-else class="category-list">
         <view v-for="item in incomeByCategory" :key="item.category" class="category-item">
           <view class="category-info">
-            <text class="category-name">{{ item.category }}</text>
-            <text class="category-count">{{ item.count }}笔</text>
-          </view>
-          <view class="category-right">
-            <text class="category-amount income">¥{{ item.amount.toFixed(2) }}</text>
-            <text class="category-percent">{{ item.percent }}%</text>
+            <view class="category-header">
+              <text class="category-name">{{ item.category }}</text>
+              <text class="category-amount income">¥{{ item.amount.toFixed(2) }}</text>
+            </view>
+            <view class="category-bar-container">
+              <view class="category-bar income-bar" :style="{ width: item.percent + '%' }"></view>
+            </view>
+            <view class="category-footer">
+              <text class="category-count">{{ item.count }}笔</text>
+              <text class="category-percent">{{ item.percent }}%</text>
+            </view>
           </view>
         </view>
       </view>
@@ -228,10 +244,22 @@ export default {
 }
 
 .section-title {
-  font-size: 32rpx;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 25rpx;
+}
+
+.section-title text:first-child {
+  font-size: 34rpx;
   font-weight: bold;
-  margin-bottom: 20rpx;
   color: #333;
+  margin-bottom: 5rpx;
+}
+
+.section-subtitle {
+  font-size: 24rpx;
+  color: #999;
+  font-weight: normal;
 }
 
 .empty {
@@ -248,23 +276,64 @@ export default {
 }
 
 .category-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20rpx;
+  padding: 25rpx;
   background: #f9f9f9;
-  border-radius: 10rpx;
+  border-radius: 15rpx;
 }
 
 .category-info {
   display: flex;
   flex-direction: column;
+  width: 100%;
+}
+
+.category-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15rpx;
 }
 
 .category-name {
   font-size: 30rpx;
   color: #333;
-  margin-bottom: 8rpx;
+  font-weight: 500;
+}
+
+.category-amount {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #ff4757;
+}
+
+.category-amount.income {
+  color: #2ed573;
+}
+
+.category-bar-container {
+  width: 100%;
+  height: 12rpx;
+  background-color: #e8e8e8;
+  border-radius: 6rpx;
+  overflow: hidden;
+  margin-bottom: 12rpx;
+}
+
+.category-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #ff6b6b 0%, #ff4757 100%);
+  border-radius: 6rpx;
+  transition: width 0.3s ease;
+}
+
+.income-bar {
+  background: linear-gradient(90deg, #51cf66 0%, #2ed573 100%);
+}
+
+.category-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .category-count {
@@ -272,25 +341,9 @@ export default {
   color: #999;
 }
 
-.category-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.category-amount {
-  font-size: 32rpx;
-  font-weight: bold;
-  color: #ff4757;
-  margin-bottom: 8rpx;
-}
-
-.category-amount.income {
-  color: #2ed573;
-}
-
 .category-percent {
-  font-size: 24rpx;
-  color: #999;
+  font-size: 26rpx;
+  color: #666;
+  font-weight: 500;
 }
 </style>

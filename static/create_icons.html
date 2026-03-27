@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="canvas" width="81" height="81"></canvas>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// Create simple icons
+const icons = {
+  'home.png': { color: '#7A7E83', text: '🏠' },
+  'home-active.png': { color: '#667eea', text: '🏠' },
+  'chart.png': { color: '#7A7E83', text: '📊' },
+  'chart-active.png': { color: '#667eea', text: '📊' },
+  'profile.png': { color: '#7A7E83', text: '👤' },
+  'profile-active.png': { color: '#667eea', text: '👤' }
+};
+
+Object.entries(icons).forEach(([name, config]) => {
+  ctx.clearRect(0, 0, 81, 81);
+  ctx.font = '60px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(config.text, 40.5, 40.5);
+  console.log(name + ' created');
+});
+</script>
+</body>
+</html>
